@@ -1,0 +1,67 @@
+name: image-mirror
+
+permissions:
+  contents: read
+  packages: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_image:
+        description: '源镜像名称（如 nginx, redis）'
+        required: true
+        default: 'nginx'
+      source_tag:
+        description: '源镜像标签'
+        required: false
+        default: 'latest'
+      target_image:
+        description: '目标镜像名称（默认同源）'
+        required: false
+        default: ''
+
+jobs:
+  copy-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Skopeo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y skopeo
+
+      - name: Extract target image name
+        id: extract-name
+        run: |
+          if [[ -z "${{ github.event.inputs.target_image }}" ]]; then
+            echo "target_image=${{ github.event.inputs.source_image }}" >> $GITHUB_OUTPUT
+          else
+            echo "target_image=${{ github.event.inputs.target_image }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy multi-arch image with Skopeo
+        run: |
+          if echo "${{ github.event.inputs.source_image }}" | grep '.*\..*/.*' >/dev/null; then
+             skopeo copy --all \
+              docker://${{ github.event.inputs.source_image }}:${{ github.event.inputs.source_tag }} \
+              docker://ghcr.io/${{ github.repository }}/${{ steps.extract-name.outputs.target_image }}:${{ github.event.inputs.source_tag }}
+          else
+             skopeo copy --all \
+               docker://docker.io/${{ github.event.inputs.source_image }}:${{ github.event.inputs.source_tag }} \
+               docker://ghcr.io/${{ github.repository }}/${{ steps.extract-name.outputs.target_image }}:${{ github.event.inputs.source_tag }}
+          fi
+
+      - name: Verify copied manifest
+        run: |
+          echo "✅ Verifying multi-arch manifest..."
+          curl -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            https://ghcr.io/v2/${{ github.repository }}/${{ steps.extract-name.outputs.target_image }}/manifests/${{ github.event.inputs.source_tag }} | jq '.mediaType'
