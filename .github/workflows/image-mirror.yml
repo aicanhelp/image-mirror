@@ -43,24 +43,21 @@ jobs:
         id: extract-name
         run: |
           if [[ -z "${{ github.event.inputs.target_image }}" ]]; then
-            if echo "${{ github.event.inputs.source_image }}" | grep -q '.*\..*/.*'; then
-              target_image="${{ github.event.inputs.source_image }}"
-              echo "target_image=${target_image#*/}" >> $GITHUB_OUTPUT
-            else
-              echo "target_image=${{ github.event.inputs.source_image }}" >> $GITHUB_OUTPUT
-            fi
+              if echo "${{ github.event.inputs.source_image }}" | grep '.*\..*/.*'; then
+                 echo "target_image=${{ github.event.inputs.source_image }}" | sed -E 's|(=[^/]*\/)|=|g' >> $GITHUB_OUTPUT
+              else
+                 echo "target_image=${{ github.event.inputs.source_image }}" >> $GITHUB_OUTPUT
+              fi   
           else
-            echo "target_image=${{ github.event.inputs.target_image }}" >> $GITHUB_OUTPUT
+              echo "target_image=${{ github.event.inputs.target_image }}" >> $GITHUB_OUTPUT
           fi
 
       - name: Copy multi-arch image with Skopeo
         run: |
           if echo "${{ github.event.inputs.source_image }}" | grep '.*\..*/.*'; then
-             target_image="${{ github.event.inputs.source_image }}"
-             target_image="${target_name#*/}"
              skopeo copy --all \
               docker://${{ github.event.inputs.source_image }}:${{ github.event.inputs.source_tag }} \
-              docker://ghcr.io/${{ github.repository }}/${target_image}:${{ github.event.inputs.source_tag }}
+              docker://ghcr.io/${{ github.repository }}/${{ steps.extract-name.outputs.target_image }}:${{ github.event.inputs.source_tag }}
           else
              skopeo copy --all \
                docker://docker.io/${{ github.event.inputs.source_image }}:${{ github.event.inputs.source_tag }} \
